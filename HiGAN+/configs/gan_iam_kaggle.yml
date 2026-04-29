@@ -11,8 +11,8 @@ training:
   lr_policy: 'linear'
   start_decay_epoch: 25
   n_epochs_decay: 46
-  batch_size: 16
-  eval_batch_size: 16
+  batch_size: 8           # T4 (15 GB) friendly; contextual loss is memory-heavy
+  eval_batch_size: 8
   sample_nrow: 3
   lr: 2.0e-4
   adam_b1: 0.5
@@ -20,7 +20,7 @@ training:
   sample_iter_val: 500
   print_iter_val: 50
   start_save_epoch_val: 1
-  save_epoch_val: 1
+  save_epoch_val: 5         # FID/KID/MMD validate every 5 epochs (last.pth still saved every epoch)
   sample_dir: 'imgs'
   ckpt_dir: 'ckpts'
   lexicon: './data/english_words.txt'
