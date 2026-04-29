@@ -13,6 +13,10 @@
 > - `scripts/setup_data.sh` — one-shot downloader for IAM h5py datasets
 >   and the four upstream pretrained `.pth` checkpoints.
 > - `docs/KAGGLE.md` — Kaggle notebook recipe (clone → setup → train).
+> - `docs/RECOG_CROP_EXPERIMENT.md` — research branch
+>   `feat/recog-random-crop` adds an optional crop on fake images before
+>   the recognizer's CTC loss to relax R's grip on G; see the doc for
+>   motivation, three crop modes, wandb integration, and per-epoch FID/KID.
 >
 > Quick start (Linux, with CUDA-capable GPU):
 > ```bash
