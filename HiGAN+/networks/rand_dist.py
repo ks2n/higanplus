@@ -61,6 +61,17 @@ class Distribution(torch.Tensor):
         new_obj.data = super().to(*args, **kwargs)
         return new_obj
 
+    # PyTorch >= 2.x requires subclasses to implement new_empty for the default
+    # __deepcopy__ to work; provide a plain-tensor fallback that callers
+    # (sample_) treat as a normal tensor anyway.
+    def new_empty(self, *args, **kwargs):
+        return torch.empty(*args, **kwargs, dtype=self.dtype, device=self.device)
+
+    def __deepcopy__(self, memo):
+        # Return a plain detached clone. Distribution metadata is not needed
+        # by the consumers of sample_().
+        return self.detach().clone()
+
 # Convenience function to prepare a z vector
 def prepare_z_dist(G_batch_size, dim_z, device='cuda', seed=0):
     z_ = Distribution(torch.randn(G_batch_size, dim_z, requires_grad=False))
