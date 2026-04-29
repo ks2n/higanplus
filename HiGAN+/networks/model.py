@@ -1043,8 +1043,11 @@ class RecognizeModel(BaseModel):
         ctc_len_scale = self.models.R.len_scale
         best_cer = np.inf
         iter_count = 0
+        max_iters_per_epoch = getattr(self.opt.training, 'max_iters_per_epoch', 0) or 0
         for epoch in range(epoch_done, self.opt.training.epochs):
             for i, batch in enumerate(self.train_loader):
+                if max_iters_per_epoch and i >= max_iters_per_epoch:
+                    break
                 #############################
                 # Prepare inputs
                 #############################
@@ -1221,8 +1224,11 @@ class WriterIdentifyModel(BaseModel):
         wid_loss_meter = AverageMeter()
         best_wrr = 0
         iter_count = 0
+        max_iters_per_epoch = getattr(self.opt.training, 'max_iters_per_epoch', 0) or 0
         for epoch in range(epoch_done, self.opt.training.epochs):
             for i, batch in enumerate(self.train_loader):
+                if max_iters_per_epoch and i >= max_iters_per_epoch:
+                    break
                 #############################
                 # Prepare inputs
                 #############################

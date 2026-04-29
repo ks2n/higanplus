@@ -1,0 +1,50 @@
+device: 'cuda:0'
+model: 'identifier_model'
+dataset: 'iam_word'
+seed: 123456
+img_height: 64
+finetune: false
+
+# Smoke config: verify Writer Identifier training pipeline runs.
+# Requires a trained OCR backbone first (see ocr_iam_smoke.yml).
+
+training:
+  dset_name: 'iam_word'
+  dset_split: 'trnval'
+  epochs: 2
+  lr_policy: 'linear'
+  start_decay_epoch: 1
+  n_epochs_decay: 1
+  batch_size: 16
+  lr: 1.0e-3
+  print_iter_val: 5
+  start_save_epoch_val: 99
+  save_epoch_val: 1
+  ckpt_dir: 'ckpts'
+  n_class: 80
+  sort_input: true
+  resume: ~
+  # point this at a trained OCR ckpt before running. Smoke value uses upstream
+  # pretrained so the smoke run still works without first training OCR.
+  pretrained_backbone: './pretrained/ocr_iam_new.pth'
+  random_clip: true
+  process_style: true
+  frozen_backbone: false
+  max_iters_per_epoch: 20
+
+valid:
+  dset_split: 'trnval'
+  batch_size: 64
+
+StyBackbone:
+  resolution: 16
+  max_dim: 256
+  in_channel: 1
+  init: 'N02'
+  dropout: 0.2
+  norm: 'bn'
+
+WidModel:
+  n_writer: 372
+  in_dim: 256
+  init: 'none'
