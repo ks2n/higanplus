@@ -11,3 +11,6 @@ scikit-image
 scipy
 distance
 einops
+# wandb is optional; the trainer no-ops cleanly when it is missing.  Listed
+# here so Kaggle / fresh installs pick it up without extra steps.
+wandb

@@ -25,6 +25,8 @@ from lib.alphabet import strLabelConverter, get_lexicon, get_true_alphabet, Alph
 from lib.utils import draw_image, get_logger, AverageMeterManager, option_to_string, AverageMeter, plot_heatmap
 from networks.rand_dist import prepare_z_dist, prepare_y_dist
 from networks.loss import recn_l1_loss, CXLoss, KLloss
+from networks.recog_crop import CropConfig, crop_for_recognizer, should_apply
+from lib.wandb_logger import Logger as WandbLogger
 
 
 class BaseModel(object):
@@ -38,6 +40,9 @@ class BaseModel(object):
         self.log_root = log_root
         self.logger = None
         self.writer = None
+        # ``WandbLogger`` is a no-op until ``create_logger`` is called and the
+        # YAML enables wandb explicitly, so pure offline runs stay free of it.
+        self.wandb = WandbLogger()
         alphabet_key = 'rimes_word' if opt.dataset.startswith('rimes') else 'all'
         self.alphabet = Alphabets[alphabet_key]
         self.label_converter = strLabelConverter(alphabet_key)
@@ -62,6 +67,13 @@ class BaseModel(object):
             f.writelines(opt_str)
         print('log_root: ', self.log_root)
         self.logger = get_logger(self.log_root)
+
+        # Initialise wandb only if the config explicitly opts in.  When the
+        # ``wandb`` section is missing or ``enabled: false`` this is a no-op.
+        wandb_cfg = getattr(self.opt, 'wandb', None)
+        run_name = os.path.basename(self.log_root.rstrip('/'))
+        self.wandb.init(wandb_cfg, full_cfg=self.opt, log_dir=self.log_root,
+                        run_name=run_name)
 
     def info(self, extra=None):
         self.print("RUNDIR: {}".format(self.log_root))
@@ -701,6 +713,23 @@ class GlobalLocalAdversarialModel(AdversarialModel):
         best_fid = np.inf
         iter_count = 0
         max_iters_per_epoch = getattr(self.opt.training, 'max_iters_per_epoch', 0) or 0
+        # Resolve recognizer-crop config once.  ``CropConfig.from_opt`` returns
+        # ``None`` if the YAML omits the section or sets ``enabled: false``,
+        # so the hot path below falls straight back to baseline behaviour.
+        self.crop_cfg = CropConfig.from_opt(
+            getattr(self.opt.training, 'recog_crop', None),
+            char_width=self.opt.char_width,
+        )
+        if self.crop_cfg is not None:
+            self.print(
+                f"recog_crop enabled: mode={self.crop_cfg.mode} "
+                f"prob={self.crop_cfg.prob} min_chars={self.crop_cfg.min_chars}"
+            )
+        # FID/KID cadence: a dedicated knob that does not piggyback on
+        # ``save_epoch_val``.  Default 0 disables the per-epoch eval and
+        # restores the original "save_epoch_val" cadence so existing configs
+        # behave unchanged.
+        eval_fid_every = int(getattr(self.opt.training, 'eval_fid_every', 0) or 0)
         for epoch in range(epoch_done, self.opt.training.epochs):
             for i, batch in enumerate(self.train_loader):
                 if max_iters_per_epoch and i >= max_iters_per_epoch:
@@ -828,23 +857,45 @@ class GlobalLocalAdversarialModel(AdversarialModel):
 
                     ### CTC Auxiliary loss ###
                     # self.models.R.frozen_bn()
-                    fake_img_lens = fake_lb_lens * self.opt.char_width
-                    fake_ctc_rand = self.models.R(fake_imgs, fake_img_lens)
-                    fake_ctc_loss_rand = self.ctc_loss(fake_ctc_rand, fake_lbs,
-                                                       fake_img_lens // ctc_len_scale,
-                                                       fake_lb_lens)
+                    # ``recog_crop`` (Idea 1) optionally trims each fake
+                    # stream before it reaches R so G is no longer punished
+                    # for letting the *whole* word read perfectly.  When
+                    # disabled (no ``recog_crop`` block in the YAML or
+                    # ``enabled: false``), this falls back to the original
+                    # full-image CTC pathway and matches the upstream loss.
+                    apply_crop = should_apply(self.crop_cfg)
+                    if apply_crop and self.crop_cfg is not None:
+                        rand_in, rand_in_lens, rand_lbs, rand_lb_lens = crop_for_recognizer(
+                            fake_imgs, fake_lbs, fake_lb_lens, self.crop_cfg)
+                        style_in, style_in_lens, style_target_lbs, style_target_lb_lens = crop_for_recognizer(
+                            style_imgs, fake_lbs, fake_lb_lens, self.crop_cfg)
+                        recn_in, recn_in_lens, recn_target_lbs, recn_target_lb_lens = crop_for_recognizer(
+                            recn_imgs, real_lbs, real_lb_lens, self.crop_cfg)
+                    else:
+                        rand_in, rand_in_lens = fake_imgs, fake_lb_lens * self.opt.char_width
+                        rand_lbs, rand_lb_lens = fake_lbs, fake_lb_lens
+                        style_in, style_in_lens = style_imgs, fake_lb_lens * self.opt.char_width
+                        style_target_lbs, style_target_lb_lens = fake_lbs, fake_lb_lens
+                        recn_in, recn_in_lens = recn_imgs, real_lb_lens * self.opt.char_width
+                        recn_target_lbs, recn_target_lb_lens = real_lbs, real_lb_lens
+
+                    fake_img_lens = fake_lb_lens * self.opt.char_width  # kept for downstream code below
+                    fake_ctc_rand = self.models.R(rand_in, rand_in_lens)
+                    fake_ctc_loss_rand = self.ctc_loss(fake_ctc_rand, rand_lbs,
+                                                       rand_in_lens // ctc_len_scale,
+                                                       rand_lb_lens)
 
                     style_img_lens = fake_lb_lens * self.opt.char_width
-                    fake_ctc_style = self.models.R(style_imgs, style_img_lens)
-                    fake_ctc_loss_style = self.ctc_loss(fake_ctc_style, fake_lbs,
-                                                        style_img_lens // ctc_len_scale,
-                                                        fake_lb_lens)
+                    fake_ctc_style = self.models.R(style_in, style_in_lens)
+                    fake_ctc_loss_style = self.ctc_loss(fake_ctc_style, style_target_lbs,
+                                                        style_in_lens // ctc_len_scale,
+                                                        style_target_lb_lens)
 
                     recn_img_lens = real_lb_lens * self.opt.char_width
-                    fake_ctc_recn = self.models.R(recn_imgs, recn_img_lens)
-                    fake_ctc_loss_recn = self.ctc_loss(fake_ctc_recn, real_lbs,
-                                                       recn_img_lens // ctc_len_scale,
-                                                       real_lb_lens)
+                    fake_ctc_recn = self.models.R(recn_in, recn_in_lens)
+                    fake_ctc_loss_recn = self.ctc_loss(fake_ctc_recn, recn_target_lbs,
+                                                       recn_in_lens // ctc_len_scale,
+                                                       recn_target_lb_lens)
 
                     fake_ctc_loss = fake_ctc_loss_rand + fake_ctc_loss_recn + fake_ctc_loss_style
 
@@ -946,6 +997,20 @@ class GlobalLocalAdversarialModel(AdversarialModel):
                                                    iter_count + 1) if self.local_rank < 1 else None
                             heatmap = plot_heatmap(info['out'])
                             self.writer.add_image('attention/%d' % i_, heatmap.transpose((2, 0, 1)))
+                    # Mirror the same scalar set to wandb so cross-experiment
+                    # comparison (baseline vs. recog-crop modes) lives in one
+                    # dashboard.  ``Logger.log`` is a no-op when wandb is off.
+                    if self.local_rank < 1:
+                        wandb_metrics = {f'loss/{k}': v for k, v in meter_vals.items()}
+                        try:
+                            wandb_metrics['loss/lr'] = self.lr_schedulers.G.get_last_lr()[0]
+                        except Exception:
+                            try:
+                                wandb_metrics['loss/lr'] = self.lr_schedulers.G.get_lr()[0]
+                            except Exception:
+                                pass
+                        wandb_metrics['epoch'] = epoch
+                        self.wandb.log(wandb_metrics, step=iter_count + 1)
 
                 if (iter_count + 1) % self.opt.training.sample_iter_val == 0:
                     if not (self.logger and self.writer):
@@ -964,12 +1029,24 @@ class GlobalLocalAdversarialModel(AdversarialModel):
                     os.makedirs(ckpt_root)
 
                 self.save('last', epoch)
-                if epoch >= self.opt.training.start_save_epoch_val and \
-                        epoch % self.opt.training.save_epoch_val == 0:
+                # Two cadences trigger FID/KID computation:
+                # 1. ``eval_fid_every`` (new): a dedicated eval-only cadence
+                #    that fires every N epochs regardless of save logic.
+                #    This is what the recognizer-crop experiments use to
+                #    track FID/KID per epoch in wandb.
+                # 2. ``start_save_epoch_val`` + ``save_epoch_val`` (legacy):
+                #    the original cadence that also saves a ``best.pth``
+                #    when FID improves.  Kept untouched for back-compat.
+                eval_fid_now = bool(eval_fid_every) and epoch % eval_fid_every == 0
+                save_best_now = (
+                    epoch >= self.opt.training.start_save_epoch_val
+                    and epoch % self.opt.training.save_epoch_val == 0
+                )
+                if eval_fid_now or save_best_now:
                     self.print('Calculate FID_KID') if self.local_rank < 1 else None
                     scores = self.validate()
 
-                    if 'fid' in scores and scores['fid'] < best_fid:
+                    if save_best_now and 'fid' in scores and scores['fid'] < best_fid:
                         best_fid = scores['fid']
                         self.save('best', epoch, **scores) if self.local_rank < 1 else None
 
@@ -977,11 +1054,22 @@ class GlobalLocalAdversarialModel(AdversarialModel):
                         for key, val in scores.items():
                             self.writer.add_scalar('valid/%s' % key, val, epoch) if self.local_rank < 1 else None
 
+                    if self.local_rank < 1:
+                        # Mirror the validation scores to wandb so the run
+                        # comparison view shows FID/KID/IS over epochs.
+                        wandb_valid = {f'valid/{k}': v for k, v in scores.items()}
+                        wandb_valid['epoch'] = epoch
+                        self.wandb.log(wandb_valid, step=iter_count)
+
                 if self.local_rank > -1:
                     dist.barrier()
 
             for scheduler in self.lr_schedulers.values():
                 scheduler.step(epoch)
+
+        # Flush the wandb run so its sync thread exits before Python does;
+        # safe to call when wandb was never enabled.
+        self.wandb.finish()
 
 
 class RecognizeModel(BaseModel):
