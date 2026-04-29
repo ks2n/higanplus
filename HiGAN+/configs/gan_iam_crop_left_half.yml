@@ -55,7 +55,7 @@ training:
     min_chars: 1               # never produce an empty CTC target
 
 wandb:
-  enabled: true
+  enabled: false
   project: 'higanplus-recog-crop'
   group: 'recog-crop-v1'
   tags: ['left_half']

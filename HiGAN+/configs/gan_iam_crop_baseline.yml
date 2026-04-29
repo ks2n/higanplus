@@ -58,7 +58,7 @@ training:
   # stream is fed *whole* into R, exactly like the upstream config.
 
 wandb:
-  enabled: true
+  enabled: false
   project: 'higanplus-recog-crop'
   group: 'recog-crop-v1'
   tags: ['baseline', 'no-crop']
