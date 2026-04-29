@@ -5,10 +5,18 @@ seed: 123456
 img_height: 64
 char_width: 32
 
-# Recognizer-Crop experiment: BASELINE.
-# Same hyperparams as the Kaggle reference run, but with FID/KID logged
-# every epoch (``eval_fid_every: 1``) and wandb enabled so we can compare
-# this run head-to-head with the three crop variants.
+# Recognizer-Crop experiment: BASELINE (no crop) -- FROM SCRATCH for G/D/E.
+#
+# This is the upstream HiGAN+ recipe (mirrors ``gan_iam.yml``) re-tuned for
+# Kaggle T4: G/D/E start from random init, only the auxiliary teachers
+# (R, W, B) are warm-started from the author's released checkpoints.
+# This is the *correct* baseline to compare against the three crop variants
+# because they all start from the same initial state -- any FID/KID gap
+# between baseline and crop runs is then attributable to the crop trick
+# itself, not to a pre-trained generator that already produced clean
+# handwriting before training began.
+#
+# FID/KID/IS logged every epoch via ``eval_fid_every: 1``.
 
 training:
   dset_split: 'trnval'
@@ -45,7 +53,7 @@ training:
   lambda_gram: 2.0
   pretrained_w: './pretrained/wid_iam_new.pth'
   pretrained_r: './pretrained/ocr_iam_new.pth'
-  pretrained_ckpt: './pretrained/deploy_HiGAN+.pth'
+  pretrained_ckpt: ''            # train G/D/E from scratch; only R/W/B are warm-started below
   # recog_crop block intentionally omitted -> baseline behaviour: every fake
   # stream is fed *whole* into R, exactly like the upstream config.
 

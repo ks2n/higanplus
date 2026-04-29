@@ -15,16 +15,18 @@ This is the same crop-as-regularisation trick VATr+ uses on its discriminator, r
 * `HiGAN+/lib/wandb_logger.py` — new optional logger.  Mirrors every TensorBoard scalar (loss/* and valid/*) to wandb when the `wandb:` block in the YAML enables it.  No-ops when wandb is missing or `enabled: false`.
 * `HiGAN+/networks/model.py` — also adds a dedicated `training.eval_fid_every` cadence so FID/KID/IS gets logged every N epochs regardless of the legacy `start_save_epoch_val + save_epoch_val` block.
 
-Three experiment configs, plus a baseline, all derived from `gan_iam_kaggle.yml`:
+Three experiment configs, plus a baseline, **all train G/D/E from random init** (the upstream paper's `gan_iam.yml` recipe).  Only the auxiliary teachers `R`, `W`, and `B` are warm-started from the author's released checkpoints (`ocr_iam_new.pth` and `wid_iam_new.pth`).  This is the correct setup for measuring whether the recognizer-crop trick actually changes how `G` learns to draw, rather than just nudging an already-trained `G` into a slightly different attractor.
 
-| File                                      | `recog_crop.mode`     | What it does                                                  |
-| ----------------------------------------- | --------------------- | ------------------------------------------------------------- |
-| `configs/gan_iam_crop_baseline.yml`       | _(none)_              | Upstream behaviour, FID/KID logged every epoch.               |
-| `configs/gan_iam_crop_left_half.yml`      | `left_half`           | Always keep left 50 % of the image and first ⌈L/2⌉ chars.     |
-| `configs/gan_iam_crop_left_3q.yml`        | `left_three_quarter`  | Always keep left 75 % and first ⌈3L/4⌉ chars.                 |
-| `configs/gan_iam_crop_char_aligned.yml`   | `char_aligned`        | Per-sample uniform random `[i:j]` slice, ≥ 1 char.            |
+| File                                      | `pretrained_ckpt` | `recog_crop.mode`     | What it does                                                  |
+| ----------------------------------------- | ----------------- | --------------------- | ------------------------------------------------------------- |
+| `configs/gan_iam_crop_baseline.yml`       | _empty_           | _(none)_              | Reference run -- upstream R-CTC behaviour, no crop.           |
+| `configs/gan_iam_crop_left_half.yml`      | _empty_           | `left_half`           | Always keep left 50 % of the image and first ⌈L/2⌉ chars.     |
+| `configs/gan_iam_crop_left_3q.yml`        | _empty_           | `left_three_quarter`  | Always keep left 75 % and first ⌈3L/4⌉ chars.                 |
+| `configs/gan_iam_crop_char_aligned.yml`   | _empty_           | `char_aligned`        | Per-sample uniform random `[i:j]` slice, ≥ 1 char.            |
 
 A smoke config exists too: `configs/gan_iam_crop_smoke.yml` (2 epochs × 5 iters, `prob: 1.0` to force the crop branch on every iter).
+
+> **Why not start from `deploy_HiGAN+.pth`?**  That checkpoint is the result of 70 epochs trained with the full-image CTC loss.  Loading it and then fine-tuning with crop would only let `G` "unlearn" a small amount before settling near the previous attractor.  Any FID gap we measure would be dominated by the warm-start, not by the crop trick.  Random init keeps the comparison clean -- baseline and crop runs see exactly the same starting state.
 
 ## Geometry refresher
 
@@ -91,6 +93,10 @@ Kaggle notebooks: one per experiment so each gets its own 9-hour session budget 
 | char_aligned          | `docs/kaggle_train_char_aligned.ipynb`| `gan_iam_crop_char_aligned.yml`     |
 
 Each notebook clones the `feat/recog-random-crop` branch, sets up the dataset, optionally logs into wandb (via Kaggle `UserSecretsClient`), runs the smoke config once, then trains its single experiment.  The resume helper inside each notebook is scoped to that experiment's `runs/<config-name>-*` prefix only, so running them in parallel under different Kaggle accounts is safe.
+
+### Time budget
+
+Because every experiment trains G/D/E from scratch, expect **~30-35 hours per experiment** at `batch_size: 4` on a Kaggle T4.  Kaggle sessions cap at 9 hours, so plan on 4-5 sessions per experiment, using the in-notebook resume helper to chain them.  Sample images written every 500 G-steps; do not expect clean handwriting before ~epoch 5-10.
 
 ## Limits / known gotchas
 

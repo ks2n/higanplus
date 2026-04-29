@@ -5,10 +5,15 @@ seed: 123456
 img_height: 64
 char_width: 32
 
-# Recognizer-Crop experiment: CHAR_ALIGNED.
+# Recognizer-Crop experiment: CHAR_ALIGNED -- FROM SCRATCH for G/D/E.
+#
 # Per-sample uniform random char-aligned slice [i:j] with length >= min_chars. Most aggressive.
 # All other hyperparams match ``gan_iam_crop_baseline.yml`` so the only
 # variable across runs is ``training.recog_crop`` and the wandb tags.
+# G/D/E start from random init; only R/W/B are warm-started from the
+# author's released checkpoints.  This matches the upstream paper's
+# ``gan_iam.yml`` recipe and is the correct setup for measuring whether
+# the crop trick actually changes how G learns.
 
 training:
   dset_split: 'trnval'
@@ -42,7 +47,7 @@ training:
   lambda_gram: 2.0
   pretrained_w: './pretrained/wid_iam_new.pth'
   pretrained_r: './pretrained/ocr_iam_new.pth'
-  pretrained_ckpt: './pretrained/deploy_HiGAN+.pth'
+  pretrained_ckpt: ''            # train G/D/E from scratch; only R/W/B are warm-started below
   recog_crop:
     enabled: true
     mode: 'char_aligned'
