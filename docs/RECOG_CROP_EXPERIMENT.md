@@ -81,7 +81,16 @@ python train.py --config configs/gan_iam_crop_left_3q.yml
 python train.py --config configs/gan_iam_crop_char_aligned.yml
 ```
 
-Kaggle notebook: `docs/kaggle_train_recog_crop.ipynb` clones the `feat/recog-random-crop` branch, sets up the dataset, optionally logs into wandb, smoke-tests, then runs each experiment.
+Kaggle notebooks: one per experiment so each gets its own 9-hour session budget without sharing GPU or accidentally cross-patching configs.
+
+| Experiment            | Notebook                              | Config                              |
+| --------------------- | ------------------------------------- | ----------------------------------- |
+| baseline (no crop)    | `docs/kaggle_train_baseline.ipynb`    | `gan_iam_crop_baseline.yml`         |
+| left_half             | `docs/kaggle_train_left_half.ipynb`   | `gan_iam_crop_left_half.yml`        |
+| left_three_quarter    | `docs/kaggle_train_left_3q.ipynb`     | `gan_iam_crop_left_3q.yml`          |
+| char_aligned          | `docs/kaggle_train_char_aligned.ipynb`| `gan_iam_crop_char_aligned.yml`     |
+
+Each notebook clones the `feat/recog-random-crop` branch, sets up the dataset, optionally logs into wandb (via Kaggle `UserSecretsClient`), runs the smoke config once, then trains its single experiment.  The resume helper inside each notebook is scoped to that experiment's `runs/<config-name>-*` prefix only, so running them in parallel under different Kaggle accounts is safe.
 
 ## Limits / known gotchas
 
