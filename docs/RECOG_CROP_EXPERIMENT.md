@@ -100,6 +100,56 @@ Each notebook clones the `feat/recog-random-crop` branch, sets up the dataset, r
 
 Because every experiment trains G/D/E from scratch, expect **~30-35 hours per experiment** at `batch_size: 4` on a Kaggle T4.  Kaggle sessions cap at 9 hours, so plan on 4-5 sessions per experiment, using the in-notebook resume helper to chain them.  Sample images written every 500 G-steps; do not expect clean handwriting before ~epoch 5-10.
 
+## How to view results
+
+Every training run writes a TensorBoard event file to `runs/<config-name>-<m-d-H-M>/events.out.tfevents.*`.  The trainer logs:
+
+| TensorBoard tag | Cadence | Lower / higher better | What it is |
+| --- | --- | --- | --- |
+| `valid/fid` | every epoch (`eval_fid_every: 1`) | lower | Frechet Inception Distance against the IAM eval set. |
+| `valid/kid` | every epoch | lower | Kernel Inception Distance (less biased than FID at small N). |
+| `valid/is_gen` | every epoch | higher | Inception Score on generated images (diversity). |
+| `valid/is_org` | every epoch | reference | IS on the real eval set; sanity ceiling for `valid/is_gen`. |
+| `loss/fake_ctc_loss` | every `print_iter_val` | lower | CTC loss R reports on fake images.  In crop runs this is the loss on the *cropped* slice. |
+| `loss/adv_loss`, `loss/recn_loss`, ... | every `print_iter_val` | -- | Standard HiGAN+ loss components. |
+| `loss/gp_ctc`, `loss/gp_info`, ... | every `print_iter_val` | -- | Gradient-balance coefficients. |
+
+Three ways to look at these:
+
+### 1. TensorBoard inline in Kaggle (live, while training runs)
+
+Each `kaggle_train_*.ipynb` has a section "View FID / KID / loss curves" that runs `%load_ext tensorboard` + `%tensorboard --logdir <latest run>` and renders the dashboard inline below the cell.  Run that cell in a second browser tab while the Train cell keeps streaming logs; refresh to see new points appear after each epoch.
+
+### 2. `scripts/compare_runs.py` (post-training, head-to-head table)
+
+After all four runs exist, on any machine that has read access to the run directories:
+
+```bash
+python scripts/compare_runs.py \
+    --runs-root HiGAN+/runs \
+    --output compare_report.md \
+    --csv compare.csv \
+    --png compare_plots/
+```
+
+The script discovers the most recent run for each of the four `gan_iam_crop_<variant>-*` prefixes, reads scalar tags out of the TensorBoard event files via `tensorboard.backend.event_processing.event_accumulator` (the public API), and emits:
+
+- A markdown table per metric (`best`, `best epoch`, `final`, `mean`, winner highlighted with a star).
+- A wide CSV with one row per training step and one column per `<experiment>__<tag>`, suitable for pandas.
+- One PNG per scalar tag with all four runs overlaid as separate lines.
+
+When a run has no data for a tag (e.g. it crashed before the first FID epoch), the table renders `--` for that cell rather than failing.
+
+### 3. `docs/kaggle_compare_results.ipynb` (Kaggle-friendly compare)
+
+A fifth notebook that wraps `compare_runs.py` for Kaggle.  Workflow:
+
+1. After each training notebook finishes, Kaggle persists its `/kaggle/working/.../runs/` as a per-notebook output dataset.  Note the four dataset slugs.
+2. Open `docs/kaggle_compare_results.ipynb`, attach those four output datasets as **Inputs**, and edit the `RUNS_ROOT` variable in cell #2 to point at the directory that contains all four `gan_iam_crop_<variant>-*` folders.
+3. Run all cells.  The notebook displays the markdown table inline, embeds the four PNG charts, and lets you load the CSV into pandas for ad-hoc analysis.
+
+If you only want to compare two or three of the variants, leave the missing ones unattached -- the script writes `--` for the missing rows and continues.
+
 ## Limits / known gotchas
 
 * The `gp_ctc` gradient-balance term is computed from `grad(fake_ctc_loss_rand, fake_ctc_rand)`.  When the crop branch is taken on a step, `fake_ctc_rand` are logits from the cropped image, and `gp_ctc` therefore reflects the *cropped* CTC's gradient magnitude.  This is intentional — we want the balance term to track whatever signal `R` is currently producing — but the per-iter scale of `gp_ctc` will jitter more than in the baseline when `prob ∈ (0, 1)`.  Worth keeping an eye on in TensorBoard.
