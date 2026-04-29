@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Data (downloaded separately, see scripts/setup_data.sh)
+HiGAN+/data/iam/*.hdf5
+HiGAN+/data/iam/*.h5
+
+# Pretrained checkpoints (downloaded separately)
+HiGAN+/pretrained/*.pth
+
+# Training artifacts
+HiGAN+/runs/
+HiGAN+/imgs/
+HiGAN+/ckpts/
+
+# Demo / test outputs
+HiGAN+/out_*.png
+HiGAN+/*.png.tmp
+HiGAN+/sanity_hello.png
+
+# Logs
+*.log

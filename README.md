@@ -1,5 +1,29 @@
 # HiGAN+
 
+> **Fork notes (ks2n)**
+>
+> This fork updates the project so it runs on modern CUDA / PyTorch (tested
+> with **Python 3.12 + PyTorch 2.11 + CUDA 12.8 on RTX 5050 / sm_120**) and
+> adds a few quality-of-life helpers:
+>
+> - `networks/rand_dist.py` — `Distribution` tensor subclass patched with
+>   `new_empty()` and `__deepcopy__()` overrides for PyTorch ≥ 2.x.
+> - `run_demo.py` — non-interactive headless runner that takes `--text` /
+>   `--out` and saves a PNG (no `input()`, no `plt.show()`).
+> - `scripts/setup_data.sh` — one-shot downloader for IAM h5py datasets
+>   and the four upstream pretrained `.pth` checkpoints.
+> - `docs/KAGGLE.md` — Kaggle notebook recipe (clone → setup → train).
+>
+> Quick start (Linux, with CUDA-capable GPU):
+> ```bash
+> python -m venv env && source env/bin/activate
+> pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision
+> pip install -r requirements.txt
+> bash scripts/setup_data.sh
+> cd HiGAN+
+> python run_demo.py --text "hello world" --out out_rand.png
+> ```
+
 ## Introduction
 This is a PyTorch implementation of the paper **"HiGAN+: Handwriting Imitation GAN with Disentangled
 Representations"** (authored by **Ji Gan, Weiwiang Wang\*, Jiaxu Leng, Xinbo Gao\*.** )

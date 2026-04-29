@@ -1,0 +1,13 @@
+numpy<2.0
+Pillow
+matplotlib
+tqdm
+PyYAML
+munch
+h5py
+tensorboard
+opencv-python
+scikit-image
+scipy
+distance
+einops
