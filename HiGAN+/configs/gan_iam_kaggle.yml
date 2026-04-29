@@ -11,9 +11,9 @@ training:
   lr_policy: 'linear'
   start_decay_epoch: 25
   n_epochs_decay: 46
-  batch_size: 8           # T4 (15 GB) friendly; contextual loss is memory-heavy
-  eval_batch_size: 8
-  sample_nrow: 3
+  batch_size: 4           # T4 (15 GB): G-step concats 3x batch (fake+style+recn);
+  eval_batch_size: 4      # peak grows with patch count for long words. 8 OOM'd at iter 350.
+  sample_nrow: 2
   lr: 2.0e-4
   adam_b1: 0.5
   adam_b2: 0.999
