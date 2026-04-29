@@ -668,10 +668,10 @@ class GlobalLocalAdversarialModel(AdversarialModel):
             print('load pretrained recognizer: ', self.opt.training.pretrained_r)
         if os.path.exists(self.opt.training.pretrained_ckpt):
             epoch_done = self.load(self.opt.training.pretrained_ckpt, self.device)
-            try:
+            # Skip pre-train validate: it forwards the entire test set (slow on
+            # consumer GPUs) and is meaningless when D/P were freshly initialised.
+            if 'validate_before_train' in self.opt.training and self.opt.training.validate_before_train:
                 self.validate(style_guided=True)
-            except Exception as e:
-                print('warm-start validate skipped:', e)
 
         # multi-gpu
         if self.local_rank > -1:
@@ -700,8 +700,11 @@ class GlobalLocalAdversarialModel(AdversarialModel):
 
         best_fid = np.inf
         iter_count = 0
+        max_iters_per_epoch = getattr(self.opt.training, 'max_iters_per_epoch', 0) or 0
         for epoch in range(epoch_done, self.opt.training.epochs):
             for i, batch in enumerate(self.train_loader):
+                if max_iters_per_epoch and i >= max_iters_per_epoch:
+                    break
                 #############################
                 # Prepare inputs & Network Forward
                 #############################
