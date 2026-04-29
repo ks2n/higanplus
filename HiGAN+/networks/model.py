@@ -2,6 +2,9 @@ import torch, os
 from PIL import Image
 from munch import Munch
 from itertools import chain
+import matplotlib
+if not os.environ.get('DISPLAY'):
+    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 from distance import levenshtein
@@ -93,9 +96,9 @@ class BaseModel(object):
 
         print('load checkpoint from ', ckpt)
         if map_location is None:
-            ckpt = torch.load(ckpt)
+            ckpt = torch.load(ckpt, weights_only=False)
         else:
-            ckpt = torch.load(ckpt, map_location=map_location)
+            ckpt = torch.load(ckpt, map_location=map_location, weights_only=False)
 
         if ckpt is None:
             return
@@ -322,7 +325,7 @@ class AdversarialModel(BaseModel):
     def validate_ocr(self, dloader, n_iters):
         self.set_mode('eval')
         recognizer = Recognizer(**self.opt.OcrModel).to(self.device)
-        r_dict = torch.load(self.opt.training.pretrained_r)['Recognizer']
+        r_dict = torch.load(self.opt.training.pretrained_r, weights_only=False)['Recognizer']
         recognizer.load_state_dict(r_dict, self.device)
         recognizer.eval()
         print('load pretrained recognizer: ', self.opt.training.pretrained_r)
@@ -362,7 +365,7 @@ class AdversarialModel(BaseModel):
     def validate_wid(self, generator, real_dloader, split='test'):
         if split == 'test':
             assert os.path.exists(self.opt.valid.pretrained_test_w)
-            w_dict = torch.load(self.opt.valid.pretrained_test_w, self.device)
+            w_dict = torch.load(self.opt.valid.pretrained_test_w, self.device, weights_only=False)
             test_writer = WriterIdentifier(**self.opt.valid.test_wid_model).to(self.device)
             test_writer.load_state_dict(w_dict['WriterIdentifier'])
             test_writer_backbone = StyleBackbone(**self.opt.StyBackbone).to(self.device)
@@ -374,7 +377,7 @@ class AdversarialModel(BaseModel):
             writer_identifier = WriterIdentifier(**self.opt.WidModel).to(self.device)
             writer_backbone = StyleBackbone(**self.opt.StyBackbone).to(self.device)
             print('load pretrained writer_identifier: ', self.opt.training.pretrained_w)
-            w_dict = torch.load(self.opt.training.pretrained_w, self.device)
+            w_dict = torch.load(self.opt.training.pretrained_w, self.device, weights_only=False)
             writer_identifier.load_state_dict(w_dict['WriterIdentifier'])
             writer_backbone.load_state_dict(w_dict['StyleBackbone'])
 
@@ -650,21 +653,25 @@ class GlobalLocalAdversarialModel(AdversarialModel):
         )
 
         epoch_done = 1
+        # Always warm-start auxiliary modules (W/B/R) when their checkpoints exist.
+        # The main pretrained_ckpt may be either a partial deploy ckpt (G/E/B only)
+        # or a full ckpt (with optimizer states). load() silently ignores missing keys,
+        # so it is safe to call after warm-starting auxiliaries.
+        if os.path.exists(self.opt.training.pretrained_w):
+            w_dict = torch.load(self.opt.training.pretrained_w, self.device, weights_only=False)
+            self.models.W.load_state_dict(w_dict['WriterIdentifier'])
+            self.models.B.load_state_dict(w_dict['StyleBackbone'])
+            print('load pretrained writer_identifier: ', self.opt.training.pretrained_w)
+        if os.path.exists(self.opt.training.pretrained_r):
+            r_dict = torch.load(self.opt.training.pretrained_r, weights_only=False)['Recognizer']
+            self.models.R.load_state_dict(r_dict)
+            print('load pretrained recognizer: ', self.opt.training.pretrained_r)
         if os.path.exists(self.opt.training.pretrained_ckpt):
             epoch_done = self.load(self.opt.training.pretrained_ckpt, self.device)
-            self.validate(style_guided=True)
-        else:
-            if os.path.exists(self.opt.training.pretrained_w):
-                w_dict = torch.load(self.opt.training.pretrained_w, self.device)
-                self.models.W.load_state_dict(w_dict['WriterIdentifier'])
-                self.models.B.load_state_dict(w_dict['StyleBackbone'])
-                print('load pretrained writer_identifier: ', self.opt.training.pretrained_w)
-                # self.validate_wid()
-            if os.path.exists(self.opt.training.pretrained_r):
-                r_dict = torch.load(self.opt.training.pretrained_r)['Recognizer']
-                self.models.R.load_state_dict(r_dict, self.device)
-                print('load pretrained recognizer: ', self.opt.training.pretrained_r)
-                # self.validate_ocr()
+            try:
+                self.validate(style_guided=True)
+            except Exception as e:
+                print('warm-start validate skipped:', e)
 
         # multi-gpu
         if self.local_rank > -1:
@@ -983,7 +990,7 @@ class RecognizeModel(BaseModel):
         recognizer = Recognizer(**opt.OcrModel).to(device)
         # print(recognizer.cnn_backbone)
         if os.path.exists(opt.training.pretrained_backbone):
-            ckpt = torch.load(opt.training.pretrained_backbone, device)['Recognizer']
+            ckpt = torch.load(opt.training.pretrained_backbone, device, weights_only=False)['Recognizer']
             new_ckpt = {}
             for key, val in ckpt.items():
                 if not key.startswith('ctc_cls'):
@@ -992,7 +999,7 @@ class RecognizeModel(BaseModel):
             print('load pretrained backbone from ', opt.training.pretrained_backbone)
 
         if os.path.exists(opt.training.resume):
-            ckpt = torch.load(opt.training.resume, device)['Recognizer']
+            ckpt = torch.load(opt.training.resume, device, weights_only=False)['Recognizer']
             recognizer.load_state_dict(ckpt)
             print('load pretrained model from ', opt.training.resume)
 
@@ -1149,7 +1156,7 @@ class WriterIdentifyModel(BaseModel):
 
         style_backbone = StyleBackbone(**opt.StyBackbone).to(device)
         if os.path.exists(opt.training.pretrained_backbone):
-            ckpt = torch.load(opt.training.pretrained_backbone, device)
+            ckpt = torch.load(opt.training.pretrained_backbone, device, weights_only=False)
 
             if 'Recognizer' in ckpt:
                 ckpt = ckpt['Recognizer']
